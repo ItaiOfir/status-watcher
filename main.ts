@@ -1,134 +1,97 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { Plugin, TFile, Notice } from 'obsidian';
+import { dirname, join, basename } from 'path';
 
-// Remember to rename these classes and interfaces!
+export default class StatusWatcher extends Plugin {
+  async onload() {
+    this.app.metadataCache.on("changed", async (file) => {
+      if (!(file instanceof TFile) || file.extension !== "md") return;
 
-interface MyPluginSettings {
-	mySetting: string;
-}
+      const metadata = this.app.metadataCache.getFileCache(file);
+      const frontmatter = metadata?.frontmatter;
 
-const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
-}
+      if (!frontmatter || !frontmatter.status) return;
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+      const status = frontmatter.status.toLowerCase();
 
-	async onload() {
-		await this.loadSettings();
-
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'sample-editor-command',
-			name: 'Sample editor command',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				console.log(editor.getSelection());
-				editor.replaceSelection('Sample Editor Command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-			}
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-	}
-
-	onunload() {
-
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-}
-
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		const {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
-}
-
-class SampleSettingTab extends PluginSettingTab {
-	plugin: MyPlugin;
-
-	constructor(app: App, plugin: MyPlugin) {
-		super(app, plugin);
-		this.plugin = plugin;
-	}
-
-	display(): void {
-		const {containerEl} = this;
-
-		containerEl.empty();
-
-		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
-			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
-				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
-					await this.plugin.saveSettings();
-				}));
-	}
+      // Log the status change
+      // new Notice(`Status changed to: ${status}`);
+      // console.log(`Status changed in ${file.path}: ${status}`);
+      
+      // Try to move the file to a subfolder with the status name
+      await this.moveFileToStatusFolder(file, status);
+    })
+  }
+  
+  async moveFileToStatusFolder(file: TFile, status: string) {
+    try {
+      // Get the directory where the file currently resides
+      const currentDir = dirname(file.path);
+      const parentDir = dirname(currentDir);
+      
+      // Current directory name (might be a status name)
+      const currentDirName = basename(currentDir);
+      
+      // First check if file is in what might be a status folder
+      // The logic here is: if file is in a folder and another status folder exists adjacent to it,
+      // then this is likely the pattern we want to follow
+      const newStatusFolderInParent = join(parentDir, status);
+      const parentStatusFolderExists = await this.app.vault.adapter.exists(newStatusFolderInParent);
+      
+      // Check if there are any other possible status folders in the parent directory
+      // This helps us determine if we should create a new status folder at the parent level
+      let shouldCreateInParent = false;
+      
+      if (currentDirName !== status) { // Don't check if we're already in the correct status folder
+        // Look for any adjacent folders that might be status folders (besides the current one)
+        try {
+          const parentContents = await this.app.vault.adapter.list(parentDir);
+          // If there's at least one folder in the parent directory (besides the current one),
+          // we'll assume we should create new status folders at this level
+          if (parentContents && parentContents.folders) {
+            const otherFolders = parentContents.folders.filter(folder => 
+              basename(folder) !== currentDirName);
+            shouldCreateInParent = otherFolders.length > 0;
+          }
+        } catch (err) {
+          console.log("Error checking parent directory contents:", err);
+        }
+      }
+      
+      if ((parentStatusFolderExists || shouldCreateInParent) && currentDirName !== status) {
+        // File is likely in a status folder and needs to move to an adjacent status folder
+        // or we've detected other status folders and should create a new one at this level
+        
+        if (!parentStatusFolderExists) {
+          // Create the new status folder if it doesn't exist
+          await this.app.vault.createFolder(newStatusFolderInParent);
+          // new Notice(`Created new status folder: ${status}`);
+        }
+        
+        const newPath = join(newStatusFolderInParent, file.name);
+        await this.app.fileManager.renameFile(file, newPath);
+        // new Notice(`Moved ${file.name} from ${currentDirName} to ${status} folder`);
+      } else {
+        // If we're not in what appears to be a status folder structure, 
+        // check for a status subfolder in the current directory
+        const statusFolder = join(currentDir, status);
+        const statusFolderExists = await this.app.vault.adapter.exists(statusFolder);
+        
+        if (statusFolderExists) {
+          // Move the file to the existing status subfolder
+          const newPath = join(statusFolder, file.name);
+          await this.app.fileManager.renameFile(file, newPath);
+          // new Notice(`Moved ${file.name} to ${status} folder`);
+        } else {
+          // Create a new status subfolder and move the file there
+          await this.app.vault.createFolder(statusFolder);
+          const newPath = join(statusFolder, file.name);
+          await this.app.fileManager.renameFile(file, newPath);
+          // new Notice(`Created ${status} folder and moved ${file.name} into it`);
+        }
+      }
+    } catch (error) {
+      console.error('Error moving file:', error);
+      new Notice(`Failed to move file: ${error.message}`);
+    }
+  }
 }
