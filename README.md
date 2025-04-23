@@ -4,6 +4,12 @@
 
 Status Watcher is an Obsidian plugin that automatically organizes your notes based on their status frontmatter property. When the status of a note changes (e.g., from "open" to "in progress"), the plugin will move the note to the corresponding status folder.
 
+## Demo
+
+See the Status Watcher plugin automatically organizing notes as their status changes:
+(Demo video used in conjunction with [Kanban Status Updater plugin](https://github.com/ankit-kapur/obsidian-kanban-status-updater-plugin))
+![status_watcher_demo](status_watcher_demo.gif)
+
 ## Features
 
 - **Automatic Note Organization**: Moves notes between folders based on their status frontmatter
